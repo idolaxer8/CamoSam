@@ -13,8 +13,8 @@ Res2Net Backbone: Download the res2net50_v1b_26w_4s-3cf99910.pth file from [the 
 
 2.To train the model, run  train.py
 
-3.Download Pre-trained Models
-Ensure the res2net50_v1b_26w_4s-3cf99910.pth file is in the pretrained_models directory and install SAM ViT-H as instructed.
+3.Download Pre-trained Models:
+Ensure the res2net50_v1b_26w_4s-3cf99910.pth file is in the models directory and install SAM ViT-H as instructed.
 
 
 ## Acknowledgements
