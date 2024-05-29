@@ -9,8 +9,7 @@ SAM ViT-H: To install the SAM ViT-H model, follow the instructions provided in t
 Res2Net Backbone: Download the res2net50_v1b_26w_4s-3cf99910.pth file from [the official Res2Net repository] (https://github.com/Res2Net/Res2Net-PretrainedModels).
 
 ## Usage
-1.Clone the Repository   ```git clone https://github.com/idolaxer8/CamoSam.git
-cd CamoSam```
+1.Clone the Repository   ```git clone https://github.com/idolaxer8/CamoSam.git```
 
 2.To train the model, run  train.py
 
