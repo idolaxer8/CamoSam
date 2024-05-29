@@ -10,7 +10,6 @@ Res2Net Backbone: Download the res2net50_v1b_26w_4s-3cf99910.pth file from [the 
 
 ## Usage
 1.Clone the Repository   ```git clone https://github.com/idolaxer8/CamoSam.git
-
 cd CamoSam```
 
 2.To train the model, run  train.py
