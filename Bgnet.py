@@ -19,7 +19,7 @@ class Bcnn(nn.Module):
     def forward(self, x):
 
         return self.block(x)
-    
+
 
 class EAM(nn.Module):
     def __init__(self):
@@ -27,9 +27,9 @@ class EAM(nn.Module):
         self.f2_cnn = Bcnn(in_channels=256, out_channels=64, kernel_size=1, bias=True) #1x1Conv
         self.f5_cnn = Bcnn(in_channels=2048, out_channels=256, kernel_size=1, bias=True) #1x1Conv
         # 2 - 3*3 Bcnn -> 1*1Conv
-        self.concat_block = nn.Sequential(Bcnn(in_channels=256+64, out_channels=256, padding=1), 
+        self.concat_block = nn.Sequential(Bcnn(in_channels=256+64, out_channels=256, padding=1),
                                           Bcnn(in_channels=256, out_channels=256, padding=1),
-                                          nn.Conv2d(in_channels=256, out_channels=1, kernel_size=1)) 
+                                          nn.Conv2d(in_channels=256, out_channels=1, kernel_size=1))
 
     def forward(self, f2, f5):
         f2_size = f2.size()[2:]
@@ -38,35 +38,37 @@ class EAM(nn.Module):
         f5 = F.interpolate(f5, f2_size, mode='bilinear', align_corners=False) # Upsampling - f5
         x = torch.cat((f2, f5), dim=1) # concatenation
         out = self.concat_block(x)
-        
+
         return out
-    
 
 class EFM(nn.Module):
-    def __init__(self, channels):
+    def __init__(self, channel):
         super(EFM, self).__init__()
-        t = int(abs((math.log(channels, 2) + 1) / 2))
-        ker_size = t if t % 2 else t + 1
-        padd = (ker_size-1) // 2
-        self.cnn3x3 = Bcnn(in_channels=channels, out_channels=channels, padding=1)
-        self.block = nn.Sequential(nn.AdaptiveAvgPool1d(1), 
-                                    nn.Conv1d(1, 1, kernel_size=ker_size, padding=padd, bias=False),
-                                    nn.Sigmoid())
-        self.cnn1x1 = Bcnn(in_channels=256, out_channels=64, kernel_size=1, bias=True) #1x1Conv
+        t = int(abs((math.log(channel, 2) + 1) / 2))
+        k = t if t % 2 else t + 1
+        self.conv2d = Bcnn(channel, channel, 3, padding=1)
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.conv1d = nn.Conv1d(1, 1, kernel_size=k, padding=(k - 1) // 2, bias=False)
+        self.sigmoid = nn.Sigmoid()
+        self.reduce = Bcnn(channel, 256, kernel_size=1)
 
-    def forward(self, f_i, f_e):
-        if f_i.size() != f_e.size():
-            att = F.interpolate(f_e, f_i.size()[2:], mode='bilinear', align_corners=False)
-        x = att * f_i + f_i
-        x = self.cnn3x3(x)
-        out = x * self.block(x)
+    def forward(self, c, att):
+        if c.size() != att.size():
+            att = F.interpolate(att, c.size()[2:], mode='bilinear', align_corners=False)
+        x = c * att + c
+        x = self.conv2d(x)
+        wei = self.avg_pool(x)
+        wei = self.conv1d(wei.squeeze(-1).transpose(-1, -2)).transpose(-1, -2).unsqueeze(-1)
+        wei = self.sigmoid(wei)
+        x = x * wei
+        x = self.reduce(x)
 
-        return self.cnn1x1(out)
-    
+        return x
+
 
 class CAM(nn.Module):
     def __init__(self, hchannels, out_channels):
-        super(EFM, self).__init__()
+        super(CAM, self).__init__()
         self.cnn1x1 = Bcnn(hchannels+out_channels, out_channels, kernel_size=1, bias=True) #1x1Conv
         self.cnn3x3_d1 = Bcnn(out_channels//4, out_channels//4, 3, dilation=1, padding=1)
         self.cnn3x3_d2 = Bcnn(out_channels//4, out_channels//4, 3, dilation=2, padding=2)
@@ -76,7 +78,7 @@ class CAM(nn.Module):
         self.final_cnn3x3 = Bcnn(out_channels, out_channels, 3)
 
     def forward(self, lo_f, hi_f): # lo_f - f_i, hi_f - f_i+1
-        if lo_f.size()[2:] != hi_f.size()[2:]: 
+        if lo_f.size()[2:] != hi_f.size()[2:]:
             hi_f = F.interpolate(hi_f, lo_f.size()[2:], mode="bilinear", align_corners=False)
         x = torch.cat((lo_f, hi_f), dim=1)
         x = self.cnn1x1(x)
@@ -85,7 +87,7 @@ class CAM(nn.Module):
         x2 = self.cnn3x3_d2(x1+xc[1]+xc[2])
         x3 = self.cnn3x3_d3(x2+xc[2]+xc[3])
         x4 = self.cnn3x3_d4(x3+xc[3])
-        x = self.cnn1x1_2(torch.cat(x1,x2,x3,x4), dim=1)
+        x = self.cnn1x1_2(torch.cat((x1,x2,x3,x4), dim=1))
         out = self.final_cnn3x3(x)
 
         return out
@@ -135,8 +137,9 @@ class OurBigEncoder(nn.Module):
         super(OurBigEncoder, self).__init__()
         self.resnet = res2net50_v1b_26w_4s(pretrained=True)  # Assuming you have defined this ResNet model
         self.EAM = EAM()  # Assuming you have defined this Edge Attention Module
-        self.EFM = EFM(256)  # Adding the Edge Feature Module
-        self.CAM = CAM(256, 64)  # Adding the Channel Attention Module
+        self.EFM = EFM(2048)  # Adding the Edge Feature Module
+        self.EFM2 = EFM(1024)
+        self.CAM = CAM(256, 256)  # Adding the Channel Attention Module
         self.full_features = [256, 512, 1024, 2048]
 
     def forward(self, x):
@@ -147,10 +150,11 @@ class OurBigEncoder(nn.Module):
         edge_attention_map = self.EAM(f2, f5)
 
         # Forward pass through the Edge Feature Module
-        ef_map = self.EFM(edge_attention_map, f2)
+        ef_map = self.EFM(edge_attention_map, f5)
+        ef_map2 = self.EFM2(edge_attention_map, f4)
 
         # Forward pass through the Channel Attention Module
-        cam_out = self.CAM(ef_map, f3)
+        cam_out = self.CAM(ef_map, ef_map2)
 
         # Returning features as a custom object
         class FeatureObject:
@@ -183,7 +187,7 @@ class Bgnet(nn.Module):
         super(EFM, self).__init__()
         self.resnet = res2net50_v1b_26w_4s(pretrained=True) #TODO: consider using HarDnet instead
 
-        self.EAM = EAM() 
+        self.EAM = EAM()
 
         self.EFM1 = EFM(256)
         self.EFM2 = EFM(512)
@@ -228,6 +232,6 @@ class Bgnet(nn.Module):
 
 
 
-        
+
 
 
